@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LLM Prompt App</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        input, textarea { width: 100%; margin: 5px 0 15px; padding: 8px; }
+        button:disabled { background: #ccc; }
+        #response { margin-top: 20px; white-space: pre-wrap; }
+        .token { cursor: pointer; border-bottom: 1px dotted #888; }
+        .popup { position: absolute; background: white; border: 1px solid #ccc; padding: 10px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.2); width: 50%; }
+        .bar { height: 20px; margin: 2px 0; color: black; padding: 0 5px; display: flex; justify-content: space-between; align-items: center; position: relative; }
+        .bar-fill { height: 100%; position: absolute; left: 0; top: 0; z-index: 0; }
+        .bar span { position: relative;  }
+        #jsonResponse { margin-top: 30px; white-space: pre-wrap; background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h2>LLM Prompt Application</h2>
+    <form id="promptForm">
+        <textarea id="systemPrompt" placeholder="System prompt" required></textarea>
+        <textarea id="userPrompt" placeholder="User prompt" required></textarea>
+        <input id="modelName" placeholder="Model name" required>
+        <input type="number" id="maxTokens" placeholder="Max tokens" min="1" required>
+        <input type="number" id="topLogprobs" placeholder="Top logprobs" min="0" required>
+        <button id="submitBtn" disabled>Submit Prompt</button>
+    </form>
+
+    <div id="response"></div>
+    <div id="jsonResponse"></div>
+
+    <script>
+        const inputs = document.querySelectorAll('#promptForm input, #promptForm textarea');
+        const submitBtn = document.getElementById('submitBtn');
+
+        inputs.forEach(input => {
+            input.addEventListener('input', validateForm);
+        });
+
+        function validateForm() {
+            const valid = Array.from(inputs).every(input => input.checkValidity());
+            submitBtn.disabled = !valid;
+        }
+
+        submitBtn.onclick = async (e) => {
+            e.preventDefault();
+
+            const payload = {
+                messages: [
+                    {role: "system", content: systemPrompt.value},
+                    {role: "user", content: userPrompt.value}
+                ],
+                max_tokens: parseInt(maxTokens.value),
+                top_logprobs: parseInt(topLogprobs.value),
+                model_name: modelName.value
+            };
+
+            try {
+                const res = await fetch('/chat/completions', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+
+                alert(`API Response Status: ${res.status}`);
+
+                if (!res.ok) throw new Error(await res.text());
+
+                const data = await res.json();
+                displayResponse(data);
+                displayJsonResponse(data);
+
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            }
+        };
+
+        function displayResponse(data) {
+            const responseEl = document.getElementById('response');
+            responseEl.innerHTML = '';
+
+            const logprobs = data.choices[0].logprobs.content;
+
+            logprobs.forEach(tokenData => {
+                const span = document.createElement('span');
+                span.className = 'token';
+                span.textContent = tokenData.token;
+
+                span.onmouseenter = (event) => {
+                    showPopup(event, tokenData.top_logprobs);
+                };
+                span.onmouseleave = hidePopup;
+
+                responseEl.appendChild(span);
+                responseEl.append(' ');
+            });
+        }
+
+        function showPopup(event, probsArray) {
+            hidePopup();
+
+            const popup = document.createElement('div');
+            popup.className = 'popup';
+
+            const probs = probsArray.map(entry => ({
+                token: entry.token,
+                prob: Math.exp(entry.logprob)
+            }));
+
+            const totalProb = probs.reduce((acc, cur) => acc + cur.prob, 0);
+
+            probs.forEach(({token, prob}) => {
+                const normalizedProb = prob / totalProb;
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                
+                const barFill = document.createElement('div');
+                barFill.className = 'bar-fill';
+                barFill.style.width = `${normalizedProb * 100}%`;
+                barFill.style.backgroundColor = getColor(normalizedProb);
+                
+                const tokenSpan = document.createElement('span');
+                tokenSpan.textContent = token;
+                
+                const probSpan = document.createElement('span');
+                probSpan.textContent = `${(normalizedProb*100).toFixed(2)}%`;
+                
+                bar.appendChild(barFill);
+                bar.appendChild(tokenSpan);
+                bar.appendChild(probSpan);
+                popup.appendChild(bar);
+            });
+
+            document.body.appendChild(popup);
+            popup.style.top = `${event.pageY + 5}px`;
+            popup.style.left = `${event.pageX + 5}px`;
+        }
+
+        function hidePopup() {
+            document.querySelectorAll('.popup').forEach(popup => popup.remove());
+        }
+
+        function getColor(prob) {
+            const r = prob < 0.5 ? 255 : Math.floor(255 - ((prob - 0.5) * 510));
+            const g = prob > 0.5 ? 255 : Math.floor(prob * 510);
+            return `rgb(${r}, ${g}, 0)`;
+        }
+
+        function displayJsonResponse(data) {
+            const jsonResponseEl = document.getElementById('jsonResponse');
+            jsonResponseEl.textContent = JSON.stringify(data, null, 8);
+        }
+    </script>
+</body>
+</html>
