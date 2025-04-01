@@ -28,6 +28,7 @@ class ChatCompletionRequest(BaseModel):
     logprobs: bool = True
     top_logprobs: int
     model_name: str
+    temperature: float
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -38,6 +39,7 @@ async def chat_completion(request: ChatCompletionRequest):
     try:
         response = llm_client.chat.completions.create(
             model=request.model_name,
+            temperature=request.temperature,
             messages=[message.dict() for message in request.messages],
             max_tokens=request.max_tokens,
             logprobs=request.logprobs,
